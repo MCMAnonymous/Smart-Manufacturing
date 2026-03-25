@@ -1,0 +1,150 @@
+1. Add this line at the beggining of the ResourceScript, after the init_property() method:
+
+   failures= init_property("FailureSimulationEnabled", VC_INTEGER, default_val=1)
+
+   # create an if condition
+   if failures.Value==1:
+  
+   	#from failsScript import failHandler
+	import os 
+  	import os.path
+  	import csv
+  	import math    #check if the component script has already import it 
+  
+  	comp_broken=comp.getProperty('Broken')   
+
+
+2. Add in OnStart() method, after global variables definition:
+
+    comp_current_MTTR=comp.getProperty('current_MTTR')
+    comp_stats=comp.findBehaviour('Statistics')
+    comp_failure_type=comp.getProperty('FailureType')
+    list_failures= []
+    fileCheck=0
+    #comp_stats.OnStateChange=stateActions
+    #counter variables 
+    First_Time_repair=True       
+    t_counter=0                
+    t_start=0            
+    mttr2wait=1000          
+
+
+3. Define OnStop() method:
+
+  def OnStop():
+    global list_failures
+    # export failure 
+    exportFailuresInfo(list_failures)
+    pass
+
+
+4. Add in OnRun() method:
+
+  # Declare at the beggining of OnRun():
+    comp_broken=comp.getProperty('Broken')
+
+
+5. Add in OnSimulationUpdate():
+
+  # Declare at the beggining of OnSimulationUpdate():
+    global sim, comp, comp_stats, list_failures, comp_broken, comp_failure_type, First_Time_repair, t_counter, t_start, mttr2wait, current_failure, comp_current_MTTR
+
+
+  # Include this code within the if condition (if sim.IsRunning and travel_controller:):
+
+      if comp_broken.Value==True :
+        # fail Handling is done here
+        if First_Time_repair== True:
+          # Counter First Iteration 
+          t_start=math.floor(sim.SimTime)
+          print('counter stuff---> start :',t_start)
+          First_Time_repair=False
+          mttr2wait=comp_current_MTTR.Value
+          current_failure=comp_failure_type.Value
+          print(mttr2wait)
+          #failure registered
+          list_failures.append([sim.SimTime,comp.Name,current_failure,comp_broken.Value])
+          print(list_failures)
+          comp_stats.State='Repairing'
+          
+        else : 
+          # regular counter iteration
+          t_current=math.floor(sim.SimTime)
+          t_counter= t_current - t_start
+          print('counter stuff--->',t_current,'-',t_start,'=',t_counter)
+          print(t_counter,'>=',mttr2wait,t_counter >= mttr2wait)
+          
+          comp_stats.State='Repairing'
+          
+          if current_failure != comp_failure_type.Value :
+            #when a failure occurs while other is being repaired
+            print(comp.Name,'-->  failure',comp_failure_type.Value, 'while',current_failure)
+            print(comp.Name,'--> MMTR WAS',mttr2wait,'NOW ->',comp_current_MTTR.Value,'+',mttr2wait,)
+            mttr2wait += comp_current_MTTR.Value
+            current_failure = comp_failure_type.Value
+            
+          if t_counter >= mttr2wait:
+            #when count is finished
+            print('Repaired')
+            comp_broken.Value=False
+            First_Time_repair=True
+            # failure repairing regsitered
+            list_failures.append([sim.SimTime,comp.Name,current_failure,comp_broken.Value])
+            if len(list_failures) > 2:
+              exportFailuresInfo(list_failures)
+
+
+  # Include this code after the if condition (if sim.IsRunning and travel_controller:):
+
+    if comp_broken.Value==False :
+      if travel_controller.active_path is not None:#failhandle
+        travel_controller.active_path.resume()#failhandle 
+        
+    elif comp_broken.Value==True :
+      if travel_controller.active_path :#failhandle
+        travel_controller.active_path.pause()#failhandle
+
+6. Define exportFailuresInfo() method
+
+  def exportFailuresInfo(list_failures):
+    global fileCheck, comp
+    '''
+    This method writes list_failures in a csv file in the output folder 
+    '''
+        
+    # name of the folder in which CSVs are stored
+    output_dir = "CSV"
+    current_dir = os.getcwd()
+    path = os.path.join(current_dir, output_dir)
+    
+    # data_Failures_CompName.csv columns name 
+    columns_failures=['TimeStamp','Component', 'Failure','Broken']
+    
+    if not os.path.exists(path):
+      os.makedirs(path)
+      
+    if fileCheck == 0: # first access to the file
+      f = open(os.path.join(path, "data_Failures_%s.csv"%(comp.Name)), "w")
+    
+      # delimiter used in the CSV file
+      failure_writer = csv.writer(f, delimiter=",", lineterminator='\n')
+    
+      failure_writer.writerow(columns_failures)
+      
+      for fila in list_failures:
+        failure_writer.writerow(fila)
+      
+      list_failures[:] = []
+      fileCheck += 1
+      f.close()
+    else:   
+      f = open(os.path.join(path, "data_Failures_%s.csv"%(comp.Name)), "a")
+      
+      # delimiter used in the CSV file
+      failure_writer = csv.writer(f, delimiter=",", lineterminator='\n')
+      
+      for fila in list_failures:
+        failure_writer.writerow(fila)
+      
+      list_failures[:] = []
+      f.close()  
